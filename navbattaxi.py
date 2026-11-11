@@ -71,7 +71,7 @@ def main_menu():
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
-        "👋 Assalomu alaykum! **TAKSI27** tezkor taksi botiga xush kelibsiz. 🚗\n\n"
+        "👋 Assalomu alaykum! **TAKSI11** tezkor taksi botiga xush kelibsiz. 🚗\n\n"
         "👇 **Iltimos, o'zingizga kerakli tugmani tanlang:**\n\n"
         "👤 👉 Agar manzilga bormoqchi bo'lsangiz, **\"👤 YO'LOVCHI\"** tugmasini bosing va bir soniyada bo'sh haydovchiga ulang!\n\n"
         "🚗 👉 Agar mashinangiz bo'lib, navbatga turib ishlamoqchi bo'lsangiz, **\"🚗 HAYDOVCHI\"** tugmasini bosing!\n\n"
