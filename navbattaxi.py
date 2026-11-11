@@ -15,7 +15,7 @@ from aiogram.types import (
 )
 
 # TOKENni o'zingizning bot tokeningizga almashtiring
-TOKEN = "9211823197:AAEWHol4YCujb66IQl27FwfBt5EXT4rt82k"
+TOKEN = "9009245143:AAFUPCxK636Fn766dFxhezIlGugL1XnLzDE"
 
 # Adminning Telegram ID raqami
 ADMIN_ID = 1145699643
