@@ -29,7 +29,7 @@ router = Router()
 # Ma'lumotlar bazasi
 drivers_db = {}          # Haydovchilar ma'lumotlari
 
-# YAngi tushunarli va belgilangan yo'nalishlar
+# Tushunarli va belgilangan yo'nalishlar
 DIR_1 = "🏡 11-SAVXOZ ➡️ DO'STLIK"
 DIR_2 = "🏙 DO'STLIK ➡️ 11-SAVXOZ"
 
@@ -228,23 +228,46 @@ async def passenger_chosen_direction(message: Message, state: FSMContext):
         return
     await state.update_data(direction=message.text)
 
+    # Yangi chiroyli tugmalar va odamchalar
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="1"), KeyboardButton(text="2"), KeyboardButton(text="3"), KeyboardButton(text="4")],
+            [
+                KeyboardButton(text="👤 1 ta odam"),
+                KeyboardButton(text="👥 2 ta odam")
+            ],
+            [
+                KeyboardButton(text="👨‍👩‍👦 3 ta odam"),
+                KeyboardButton(text="👨‍👩‍👧‍👦 4 ta odam")
+            ],
             [KeyboardButton(text="🏠 Asosiy menyu")],
         ],
         resize_keyboard=True,
     )
-    await message.answer("👥 Yo'lovchilar sonini tanlang:", reply_markup=keyboard)
+    await message.answer(
+        "👥 **Yo'lovchilar sonini tanlang:**\n\n"
+        "⚠️ <i>ESLATMA: ANIQ ODAM SONINI BELGILANG!</i>", 
+        reply_markup=keyboard, 
+        parse_mode="HTML"
+    )
     await state.set_state(PassengerState.waiting_for_passengers)
 
 
 @router.message(PassengerState.waiting_for_passengers)
 async def passenger_chosen_count(message: Message, state: FSMContext):
-    if message.text not in ["1", "2", "3", "4"]:
-        await message.answer("⚠️ Iltimos, 1 dan 4 gacha bo'lgan raqamni tanlang!")
+    # Tugma matnidan faqat raqamni ajratib olish (masalan: "👤 1 ta odam" -> 1)
+    text = message.text
+    count_map = {
+        "👤 1 ta odam": 1,
+        "👥 2 ta odam": 2,
+        "👨‍👩‍👦 3 ta odam": 3,
+        "👨‍👩‍👧‍👦 4 ta odam": 4
+    }
+
+    if text not in count_map:
+        await message.answer("⚠️ Iltimos, pastdagi tugmalardan birini tanlang va **ANIQ ODAM SONINI BELGILANG**!", parse_mode="Markdown")
         return
-    await state.update_data(passenger_count=int(message.text))
+
+    await state.update_data(passenger_count=count_map[text])
 
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
@@ -708,7 +731,7 @@ async def reject_order_inline(callback: CallbackQuery):
 
 
 # ==========================================
-#   HAR KUNI SOAT 05:00 DA NAVBATLARNI TOZALASH
+#   HAR KUNI SOAT 05:00 DA NAVBATLARni TOZALASH
 # ==========================================
 async def daily_queue_reset():
     """Har kuni tonggi soat 05:00 da barcha yo'nalishdagi navbatlarni tozalash"""
