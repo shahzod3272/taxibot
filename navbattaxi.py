@@ -228,7 +228,6 @@ async def passenger_chosen_direction(message: Message, state: FSMContext):
         return
     await state.update_data(direction=message.text)
 
-    # Yangi chiroyli tugmalar va odamchalar
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [
@@ -245,7 +244,7 @@ async def passenger_chosen_direction(message: Message, state: FSMContext):
     )
     await message.answer(
         "👥 **Yo'lovchilar sonini tanlang:**\n\n"
-        "⚠️ <i>ESLATMA: ANIQ ODAM SONINI BELGILANG!</i>", 
+        "⚠️ <i>ESLATMA: ANIQ ODAM SONINI BELGILANG!</i> ............ ⬇️", 
         reply_markup=keyboard, 
         parse_mode="HTML"
     )
@@ -254,7 +253,6 @@ async def passenger_chosen_direction(message: Message, state: FSMContext):
 
 @router.message(PassengerState.waiting_for_passengers)
 async def passenger_chosen_count(message: Message, state: FSMContext):
-    # Tugma matnidan faqat raqamni ajratib olish (masalan: "👤 1 ta odam" -> 1)
     text = message.text
     count_map = {
         "👤 1 ta odam": 1,
@@ -264,7 +262,7 @@ async def passenger_chosen_count(message: Message, state: FSMContext):
     }
 
     if text not in count_map:
-        await message.answer("⚠️ Iltimos, pastdagi tugmalardan birini tanlang va **ANIQ ODAM SONINI BELGILANG**!", parse_mode="Markdown")
+        await message.answer("⚠️ Iltimos, pastdagi tugmalardan birini tanlang va **ANIQ ODAM SONINI BELGILANG** ⬇️", parse_mode="Markdown")
         return
 
     await state.update_data(passenger_count=count_map[text])
@@ -731,7 +729,7 @@ async def reject_order_inline(callback: CallbackQuery):
 
 
 # ==========================================
-#   HAR KUNI SOAT 05:00 DA NAVBATLARni TOZALASH
+#   HAR KUNI SOAT 05:00 DA NAVBATLARNI TOZALASH
 # ==========================================
 async def daily_queue_reset():
     """Har kuni tonggi soat 05:00 da barcha yo'nalishdagi navbatlarni tozalash"""
