@@ -28,9 +28,14 @@ router = Router()
 
 # Ma'lumotlar bazasi
 drivers_db = {}          # Haydovchilar ma'lumotlari
+
+# YAngi tushunarli va belgilangan yo'nalishlar
+DIR_1 = "🏡 11-SAVXOZ ➡️ DO'STLIK"
+DIR_2 = "🏙 DO'STLIK ➡️ 11-SAVXOZ"
+
 drivers_queues = {
-    "QAXRAMON MFY>>DO'STLIK": [],
-    "DO'STLIK>>QAXRAMON MFY": []
+    DIR_1: [],
+    DIR_2: []
 }
 active_orders = {}       
 pending_orders = {}      
@@ -200,13 +205,13 @@ async def feedback_get(message: Message, state: FSMContext):
 async def passenger_start(message: Message, state: FSMContext):
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="QAXRAMON MFY>>DO'STLIK")],
-            [KeyboardButton(text="DO'STLIK>>QAXRAMON MFY")],
+            [KeyboardButton(text=DIR_1)],
+            [KeyboardButton(text=DIR_2)],
             [KeyboardButton(text="🏠 Asosiy menyu")],
         ],
         resize_keyboard=True,
     )
-    await message.answer("Iltimos, kerakli yo'nalishni tanlang:", reply_markup=keyboard)
+    await message.answer("📍 Iltimos, o'zingizga kerakli yo'nalishni tanlang:", reply_markup=keyboard)
     await state.set_state(PassengerState.waiting_for_direction)
 
 
@@ -219,7 +224,7 @@ async def back_to_main_passenger(message: Message, state: FSMContext):
 @router.message(PassengerState.waiting_for_direction)
 async def passenger_chosen_direction(message: Message, state: FSMContext):
     if message.text not in drivers_queues:
-        await message.answer("Iltimos, tugmalardan birini tanlang!")
+        await message.answer("⚠️ Iltimos, tugmalardan birini tanlang!")
         return
     await state.update_data(direction=message.text)
 
@@ -230,14 +235,14 @@ async def passenger_chosen_direction(message: Message, state: FSMContext):
         ],
         resize_keyboard=True,
     )
-    await message.answer("Yo'lovchilar sonini tanlang:", reply_markup=keyboard)
+    await message.answer("👥 Yo'lovchilar sonini tanlang:", reply_markup=keyboard)
     await state.set_state(PassengerState.waiting_for_passengers)
 
 
 @router.message(PassengerState.waiting_for_passengers)
 async def passenger_chosen_count(message: Message, state: FSMContext):
     if message.text not in ["1", "2", "3", "4"]:
-        await message.answer("Iltimos, 1 dan 4 gacha raqam tanlang!")
+        await message.answer("⚠️ Iltimos, 1 dan 4 gacha bo'lgan raqamni tanlang!")
         return
     await state.update_data(passenger_count=int(message.text))
 
@@ -248,7 +253,7 @@ async def passenger_chosen_count(message: Message, state: FSMContext):
         ],
         resize_keyboard=True,
     )
-    await message.answer("Bog'lanish uchun pastdagi **'📞 Telefon raqamni yuborish'** tugmasini bosing:", reply_markup=keyboard, parse_mode="Markdown")
+    await message.answer("📞 Bog'lanish uchun pastdagi **'📞 Telefon raqamni yuborish'** tugmasini bosing:", reply_markup=keyboard, parse_mode="Markdown")
     await state.set_state(PassengerState.waiting_for_phone)
 
 
@@ -329,27 +334,27 @@ async def driver_entry(message: Message, state: FSMContext):
 
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="QAXRAMON MFY>>DO'STLIK")],
-            [KeyboardButton(text="DO'STLIK>>QAXRAMON MFY")],
+            [KeyboardButton(text=DIR_1)],
+            [KeyboardButton(text=DIR_2)],
             [KeyboardButton(text="💰 Mening hisobim"), KeyboardButton(text="🏠 Asosiy menyu")],
         ],
         resize_keyboard=True,
     )
-    await message.answer("Yo'nalishni tanlang:", reply_markup=keyboard)
+    await message.answer("📍 Ishlamoqchi bo'lgan yo'nalishni tanlang:", reply_markup=keyboard)
     await state.set_state(DriverState.waiting_for_direction)
 
 
 @router.message(DriverRegState.waiting_for_car_name)
 async def reg_car_name(message: Message, state: FSMContext):
     await state.update_data(car_name=message.text)
-    await message.answer("Avto raqamini kiriting (masalan: `01A777AA`):", parse_mode="Markdown")
+    await message.answer("🚗 Avto raqamini kiriting (masalan: `01A777AA`):", parse_mode="Markdown")
     await state.set_state(DriverRegState.waiting_for_car_number)
 
 
 @router.message(DriverRegState.waiting_for_car_number)
 async def reg_car_number(message: Message, state: FSMContext):
     await state.update_data(car_number=message.text)
-    await message.answer("Ism va familiyangizni kiriting:")
+    await message.answer("👤 Ism va familiyangizni kiriting:")
     await state.set_state(DriverRegState.waiting_for_name)
 
 
@@ -360,7 +365,7 @@ async def reg_name(message: Message, state: FSMContext):
         keyboard=[[KeyboardButton(text="📞 Telefon raqamni yuborish", request_contact=True)]],
         resize_keyboard=True,
     )
-    await message.answer("Telefon raqamingizni yuborish uchun pastdagi tugmani bosing:", reply_markup=keyboard)
+    await message.answer("📞 Telefon raqamingizni yuborish uchun pastdagi tugmani bosing:", reply_markup=keyboard)
     await state.set_state(DriverRegState.waiting_for_phone)
 
 
@@ -386,7 +391,7 @@ async def reg_phone(message: Message, state: FSMContext):
         "status": "pending",
         "paid_until": None,
         "last_work_date": None,
-        "missed_counts": {}  # Har bir yo'nalish uchun alohida xatolar hisoblagichi
+        "missed_counts": {}
     }
     
     await state.clear()
@@ -451,7 +456,7 @@ async def driver_check_balance(message: Message):
 @router.message(DriverState.waiting_for_direction)
 async def driver_chosen_direction(message: Message, state: FSMContext):
     if message.text not in drivers_queues:
-        await message.answer("Iltimos, tugmadan tanlang!")
+        await message.answer("⚠️ Iltimos, tugmadan tanlang!")
         return
 
     driver_id = message.from_user.id
@@ -489,7 +494,7 @@ async def driver_leave_queue(message: Message):
         for d in drivers_queues[direction]:
             if d["id"] == driver_id:
                 drivers_queues[direction].remove(d)
-    await message.answer("Siz navbatdan chiqarildingiz.", reply_markup=main_menu())
+    await message.answer("✅ Siz navbatdan chiqarildingiz.", reply_markup=main_menu())
 
 
 @router.message(F.text == "📋 Navbat ro'yxati")
@@ -502,7 +507,7 @@ async def show_queue_list(message: Message):
             break
 
     if not my_direction:
-        await message.answer("Siz navbatda emassiz!")
+        await message.answer("⚠️ Siz hozirda hech qanday navbatda emassiz!")
         return
 
     queue_text = f"📋 **{my_direction}** navbati:\n\n"
@@ -524,7 +529,7 @@ async def back_to_main_menu_general(message: Message, state: FSMContext):
 async def send_order_to_next_driver(direction, order_data):
     if not drivers_queues[direction]:
         try:
-            await bot.send_message(order_data["passenger_id"], "😔 Hozirda bo'sh haydovchilar topilmadi.")
+            await bot.send_message(order_data["passenger_id"], "😔 Hozirda bu yo'nalishda bo'sh haydovchilar topilmadi.")
         except:
             pass
         return
@@ -548,7 +553,7 @@ async def send_order_to_next_driver(direction, order_data):
     )
 
     text = (
-        f"🔔🚨 <b>DIQQAT! YANGI BUYURTMA!</b> 🚨🔔\n\n"
+        f"🔔🚨 **DIQQAT! YANGI BUYURTMA!** 🚨🔔\n\n"
         f"📍 Yo'nalish: <b>{direction}</b>\n"
         f"👥 Yo'lovchilar soni: <b>{order_data['count']} ta</b>\n"
         f"💺 Bo'sh joyingiz: <b>{current_driver['seats']} ta</b>\n\n"
@@ -558,7 +563,7 @@ async def send_order_to_next_driver(direction, order_data):
     sent_msg = await bot.send_message(driver_id, text, reply_markup=keyboard, parse_mode="HTML")
 
     async def timeout_task():
-        await asyncio.sleep(12)  # Qabul qilish vaqti 12 sekundga o'zgartirildi
+        await asyncio.sleep(12)
         if order_data["passenger_id"] in active_orders:
             del active_orders[order_data["passenger_id"]]
             
@@ -566,9 +571,9 @@ async def send_order_to_next_driver(direction, order_data):
                 await bot.edit_message_text(
                     chat_id=driver_id,
                     message_id=sent_msg.message_id,
-                    text=f"{text}\n\n❌ <b>Vaqt tugadi! Siz buyurtmaga javob bermadingiz.</b>",
+                    text=f"{text}\n\n❌ **Vaqt tugadi! Siz buyurtmaga javob bermadingiz.**",
                     reply_markup=None,
-                    parse_mode="HTML"
+                    parse_mode="Markdown"
                 )
             except:
                 pass
@@ -578,7 +583,6 @@ async def send_order_to_next_driver(direction, order_data):
                 if "missed_counts" not in d_db:
                     d_db["missed_counts"] = {}
                 
-                # Har bir yo'nalish uchun alohida hisoblanadi
                 current_missed = d_db["missed_counts"].get(direction, 0) + 1
                 d_db["missed_counts"][direction] = current_missed
 
@@ -615,7 +619,6 @@ async def accept_order_inline(callback: CallbackQuery):
 
         if driver_id in drivers_db:
             if "missed_counts" in drivers_db[driver_id]:
-                # Haydovchi buyurtmani muvaffaqiyatli olsa, shu yo'nalishdagi xatolar soni tozalanadi
                 drivers_db[driver_id]["missed_counts"][direction] = 0
 
         p_phone = order_info.get("phone", "")
@@ -733,7 +736,6 @@ async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
     
-    # Fon vazifasini ishga tushiramiz
     asyncio.create_task(daily_queue_reset())
     
     print("Bot muvaffaqiyatli ishga tushdi!")
