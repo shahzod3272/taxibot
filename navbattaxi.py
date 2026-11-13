@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import sqlite3
 from datetime import datetime, timedelta
@@ -31,7 +32,7 @@ router = Router()
 conn = sqlite3.connect("taksi_bot.db", check_same_thread=False)
 cursor = conn.cursor()
 
-# Haydovchilar jadvalini yaratish
+# Haydovchilar jadvali
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS drivers (
     driver_id INTEGER PRIMARY KEY,
@@ -42,10 +43,25 @@ CREATE TABLE IF NOT EXISTS drivers (
     status TEXT,
     paid_until TEXT,
     last_work_date TEXT,
-    missed_counts TEXT
+    missed_counts TEXT,
+    reject_counts TEXT
+)
+""")
+
+# Yo'lovchilar jadvali (raqamini eslab qolish uchun)
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS passengers (
+    passenger_id INTEGER PRIMARY KEY,
+    phone TEXT
 )
 """)
 conn.commit()
+
+try:
+    cursor.execute("ALTER TABLE drivers ADD COLUMN reject_counts TEXT")
+    conn.commit()
+except sqlite3.OperationalError:
+    pass
 
 # Tushunarli va belgilangan yo'nalishlar
 DIR_1 = "🏡 11-SAVXOZ ➡️ DO'STLIK"
@@ -107,7 +123,57 @@ async def cmd_start(message: Message, state: FSMContext):
 #              ADMIN BUYRUQLARI
 # ==========================================
 
-# 1. Bittalab kun qo'shish: /uzaytirish ID KUN
+@router.message(Command("kuni_oz"))
+async def admin_low_balance_drivers(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    cursor.execute("SELECT driver_id, name, car, number, phone, paid_until FROM drivers WHERE status = 'approved'")
+    rows = cursor.fetchall()
+
+    if not rows:
+        await message.answer("📭 Bazada tasdiqlangan haydovchilar yo'q.")
+        return
+
+    now = datetime.now()
+    text = "⚠️ **Muddati tugashiga 1 kun yoki undan kam qolgan haydovchilar:**\n\n"
+    found = False
+
+    for row in rows:
+        d_id, name, car, number, phone, paid_until_str = row
+        if not paid_until_str:
+            continue
+        
+        paid_until = datetime.fromisoformat(paid_until_str)
+        remaining_time = paid_until - now
+        
+        if remaining_time <= timedelta(days=1):
+            found = True
+            left_hours = int(remaining_time.total_seconds() // 3600)
+            if left_hours < 0:
+                left_str = "⚠️ Muddati tugagan!"
+            else:
+                left_str = f"⏳ Qoldi: ~{left_hours} soat"
+
+            p_clean = phone.strip()
+            if not p_clean.startswith("+"):
+                p_clean = "+" + p_clean
+
+            text += (
+                f"👤 **Ism:** {name}\n"
+                f"🆔 ID: `{d_id}`\n"
+                f"🚗 Mashina: {car} ({number})\n"
+                f"📞 Tel: [{phone}](tel:{p_clean})\n"
+                f"⏱ Holat: {left_str}\n"
+                f"-----------------------------------\n"
+            )
+
+    if not found:
+        await message.answer("✅ Hozirda 1 kuni qolgan haydovchilar yo'q. Hammaning vaqti yetarlicha.")
+    else:
+        await message.answer(text, parse_mode="Markdown")
+
+
 @router.message(Command("uzaytirish"))
 async def admin_extend_driver(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -156,7 +222,6 @@ async def admin_extend_driver(message: Message):
         pass
 
 
-# 2. HAMMAGA BIRDANIGA KUN QO'SHISH: /hammaga KUN_SONI
 @router.message(Command("hammaga"))
 async def admin_extend_all_drivers(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -164,7 +229,7 @@ async def admin_extend_all_drivers(message: Message):
 
     parts = message.text.split()
     if len(parts) != 2:
-        await message.answer("⚠️ Noto'g'ri format!\nIshlatish: `/hammaga KUN_SONI` (masalan: `/hammaga 5`)", parse_mode="Markdown")
+        await message.answer("⚠️ Noto'g'ri format!\nIshlatish: `/hammaga KUN_SONI`", parse_mode="Markdown")
         return
 
     try:
@@ -173,7 +238,6 @@ async def admin_extend_all_drivers(message: Message):
         await message.answer("❌ Kunlar soni faqat raqamlardan iborat bo'lishi kerak!")
         return
 
-    # Faqat tasdiqlangan (approved) haydovchilarni olamiz
     cursor.execute("SELECT driver_id, paid_until FROM drivers WHERE status = 'approved'")
     rows = cursor.fetchall()
 
@@ -196,7 +260,6 @@ async def admin_extend_all_drivers(message: Message):
         conn.commit()
         count += 1
 
-        # Har bir haydovchiga xabar yuborishga harakat qilamiz
         date_str = new_paid_until.strftime("%d.%m.%Y %H:%M")
         try:
             await bot.send_message(
@@ -233,11 +296,15 @@ async def admin_driver_list(message: Message):
         else:
             left_str = "Hali faollashmagan"
             
+        p_clean = phone.strip() if phone else ""
+        if p_clean and not p_clean.startswith("+"):
+            p_clean = "+" + p_clean
+
         text += (
             f"👤 **Ism:** {name}\n"
             f"🆔 ID: `{d_id}`\n"
             f"🚗 Mashina: {car} ({number})\n"
-            f"📞 Tel: {phone}\n"
+            f"📞 Tel: [{phone}](tel:{p_clean})\n"
             f"📊 Holati: {status} | Muddat: {left_str}\n"
             f"-----------------------------------\n"
         )
@@ -348,16 +415,73 @@ async def passenger_chosen_count(message: Message, state: FSMContext):
         return
 
     await state.update_data(passenger_count=count_map[text])
+    data = await state.get_data()
+    direction = data["direction"]
+    p_count = data["passenger_count"]
 
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="📞 Telefon raqamni yuborish", request_contact=True)],
-            [KeyboardButton(text="🏠 Asosiy menyu")],
-        ],
-        resize_keyboard=True,
+    # Tasdiqlash uchun Inline tugmalar (Taksi chaqirish o'ng tomonga qo'yildi)
+    confirm_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="❌ Bekor qilish", callback_data="cancel_order"),
+                InlineKeyboardButton(text="✅ TAKSI CHAQIRISH", callback_data="confirm_order")
+            ]
+        ]
     )
-    await message.answer("📞 Bog'lanish uchun pastdagi **'📞 Telefon raqamni yuborish'** tugmasini bosing:", reply_markup=keyboard, parse_mode="Markdown")
-    await state.set_state(PassengerState.waiting_for_phone)
+
+    await message.answer(
+        f"📋 **Sizning ma'lumotlaringiz:**\n\n"
+        f"📍 Yo'nalish: <b>{direction}</b>\n"
+        f"👥 Odam soni: <b>{p_count} ta</b>\n\n"
+        f"Buyurtmani haydovchilarga yuborishni tasdiqlaysizmi?",
+        reply_markup=confirm_keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "cancel_order")
+async def cancel_order_inline(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_text("❌ Buyurtma bekor qilindi.")
+    await callback.message.answer("Asosiy menyu:", reply_markup=main_menu())
+    await callback.answer("Bekor qilindi")
+
+
+@router.callback_query(F.data == "confirm_order")
+async def confirm_order_inline(callback: CallbackQuery, state: FSMContext):
+    passenger_id = callback.from_user.id
+    passenger_name = callback.from_user.full_name
+
+    cursor.execute("SELECT phone FROM passengers WHERE passenger_id = ?", (passenger_id,))
+    row = cursor.fetchone()
+
+    if row and row[0]:
+        phone = row[0]
+        data = await state.get_data()
+        direction = data.get("direction", DIR_1)
+        p_count = data.get("passenger_count", 1)
+
+        await callback.message.edit_text("✅ Buyurtmangiz tasdiqlandi va haydovchiga yuborildi! 🚗")
+        await state.clear()
+
+        order_info = {
+            "passenger_id": passenger_id,
+            "passenger_name": passenger_name,
+            "phone": phone,
+            "count": p_count,
+            "direction": direction
+        }
+        pending_orders[passenger_id] = order_info
+        await send_order_to_next_driver(direction, order_info)
+    else:
+        keyboard = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="🏠 Asosiy menyu")]],
+            resize_keyboard=True,
+        )
+        await callback.message.edit_text("📞 **Telefon raqamingizni kiriting** (masalan: `+998901234567`):", parse_mode="Markdown")
+        await state.set_state(PassengerState.waiting_for_phone)
+
+    await callback.answer("Buyurtma qabul qilindi!")
 
 
 @router.message(PassengerState.waiting_for_phone, F.text == "🏠 Asosiy menyu")
@@ -366,23 +490,22 @@ async def back_from_phone(message: Message, state: FSMContext):
     await message.answer("Asosiy menyu:", reply_markup=main_menu())
 
 
-@router.message(PassengerState.waiting_for_phone, ~F.contact)
-async def passenger_wrong_phone(message: Message):
-    await message.answer(
-        "⚠️ **Iltimos, raqamni qo'lda yozmang!**\n"
-        "Faqat pastdagi **'📞 Telefon raqamni yuborish'** tugmasini bosing.",
-        parse_mode="Markdown"
-    )
+@router.message(PassengerState.waiting_for_phone)
+async def passenger_got_phone_text(message: Message, state: FSMContext):
+    phone = message.text.strip()
+    if not phone.startswith("+") or len(phone) < 9:
+        await message.answer("⚠️ Noto'g'ri format! Iltimos, raqamni to'g'ri kiriting (masalan: `+998901234567`):", parse_mode="Markdown")
+        return
 
-
-@router.message(PassengerState.waiting_for_phone, F.contact)
-async def passenger_got_contact(message: Message, state: FSMContext):
-    data = await state.get_data()
-    direction = data["direction"]
-    p_count = data["passenger_count"]
-    phone = message.contact.phone_number
     passenger_id = message.from_user.id
     passenger_name = message.from_user.full_name
+
+    cursor.execute("INSERT OR REPLACE INTO passengers (passenger_id, phone) VALUES (?, ?)", (passenger_id, phone))
+    conn.commit()
+
+    data = await state.get_data()
+    direction = data.get("direction", DIR_1)
+    p_count = data.get("passenger_count", 1)
 
     await message.answer("✅ Buyurtmangiz qabul qilindi! Haydovchi qidirilmoqda...", reply_markup=main_menu())
     await state.clear()
@@ -469,32 +592,24 @@ async def reg_car_number(message: Message, state: FSMContext):
 @router.message(DriverRegState.waiting_for_name)
 async def reg_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="📞 Telefon raqamni yuborish", request_contact=True)]],
-        resize_keyboard=True,
-    )
-    await message.answer("📞 Telefon raqamingizni yuborish uchun pastdagi tugmani bosing:", reply_markup=keyboard)
+    await message.answer("📞 Telefon raqamingizni kiriting (masalan: `+998901234567`):", parse_mode="Markdown")
     await state.set_state(DriverRegState.waiting_for_phone)
 
 
-@router.message(DriverRegState.waiting_for_phone, ~F.contact)
-async def driver_wrong_phone(message: Message):
-    await message.answer(
-        "⚠️ **Iltimos, raqamni qo'lda yozmang!**\n"
-        "Faqat pastdagi **'📞 Telefon raqamni yuborish'** tugmasini bosing.",
-        parse_mode="Markdown"
-    )
-
-
-@router.message(DriverRegState.waiting_for_phone, F.contact)
+@router.message(DriverRegState.waiting_for_phone)
 async def reg_phone(message: Message, state: FSMContext):
+    phone = message.text.strip()
+    if not phone.startswith("+") or len(phone) < 9:
+        await message.answer("⚠️ Noto'g'ri format! Iltimos, raqamni to'g'ri kiriting (masalan: `+998901234567`):", parse_mode="Markdown")
+        return
+
     data = await state.get_data()
     driver_id = message.from_user.id
     
     cursor.execute("""
-    INSERT OR REPLACE INTO drivers (driver_id, name, car, number, phone, status, paid_until, last_work_date, missed_counts)
-    VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, '{}')
-    """, (driver_id, data["name"], data["car_name"], data["car_number"], message.contact.phone_number))
+    INSERT OR REPLACE INTO drivers (driver_id, name, car, number, phone, status, paid_until, last_work_date, missed_counts, reject_counts)
+    VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, '{}', '{}')
+    """, (driver_id, data["name"], data["car_name"], data["car_number"], phone))
     conn.commit()
     
     await state.clear()
@@ -504,10 +619,19 @@ async def reg_phone(message: Message, state: FSMContext):
         keyboard=[[KeyboardButton(text=f"✅ Tasdiqlash_{driver_id}"), KeyboardButton(text=f"❌ Rad etish_{driver_id}")]],
         resize_keyboard=True,
     )
+    
+    p_clean = phone.strip()
+    if not p_clean.startswith("+"):
+        p_clean = "+" + p_clean
+
     try:
         await bot.send_message(
             ADMIN_ID,
-            f"🚨 Yangi haydovchi:\n🆔 ID: `{driver_id}`\n👤 Ism: {data['name']}\n🚗 {data['car_name']} ({data['car_number']})",
+            f"🚨 **Yangi haydovchi arizasi:**\n"
+            f"🆔 ID: `{driver_id}`\n"
+            f"👤 Ism: {data['name']}\n"
+            f"🚗 Mashina: {data['car_name']} ({data['car_number']})\n"
+            f"📞 Telefon: [{phone}](tel:{p_clean})",
             reply_markup=admin_keyboard,
             parse_mode="Markdown"
         )
@@ -527,7 +651,7 @@ async def admin_approve_driver(message: Message):
 
     await message.edit_text("✅ Haydovchi tasdiqlandi va 10 kun berildi!")
     try:
-        await bot.send_message(driver_id, "🎉 Tabriklaymiz! 10 kunlik muddat berildi.")
+        await bot.send_message(driver_id, "🎉 Tabriklaymiz! Arizangiz tasdiqlandi va 10 kunlik muddat berildi.")
     except:
         pass
 
@@ -543,7 +667,7 @@ async def admin_reject_driver(message: Message):
 
     await message.edit_text("❌ Haydovchi rad etildi.")
     try:
-        await bot.send_message(driver_id, "❌ Arizangiz rad etildi.")
+        await bot.send_message(driver_id, "❌ Afsuski, arizangiz rad etildi.")
     except:
         pass
 
@@ -599,6 +723,16 @@ async def driver_chosen_direction(message: Message, state: FSMContext):
             "seats": 4
         })
 
+    cursor.execute("SELECT missed_counts, reject_counts FROM drivers WHERE driver_id = ?", (driver_id,))
+    m_row = cursor.fetchone()
+    if m_row:
+        missed_dict = json.loads(m_row[0]) if m_row[0] else {}
+        reject_dict = json.loads(m_row[1]) if m_row[1] else {}
+        missed_dict[direction] = 0
+        reject_dict[direction] = 0
+        cursor.execute("UPDATE drivers SET missed_counts = ?, reject_counts = ? WHERE driver_id = ?", (json.dumps(missed_dict), json.dumps(reject_dict), driver_id))
+        conn.commit()
+
     keyboard = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="❌ Navbatdan chiqish"), KeyboardButton(text="📋 Navbat ro'yxati")]],
         resize_keyboard=True,
@@ -643,11 +777,10 @@ async def back_to_main_menu_general(message: Message, state: FSMContext):
 
 
 # ==========================================
-#      FIFO, 8 MARTALIK QOIDALAR VA INLINE
+#          FIFO VA QOIDALAR
 # ==========================================
 
 async def send_order_to_next_driver(direction, order_data):
-    import json
     if not drivers_queues[direction]:
         try:
             await bot.send_message(order_data["passenger_id"], "😔 Hozirda bu yo'nalishda bo'sh haydovchilar topilmadi.")
@@ -686,6 +819,7 @@ async def send_order_to_next_driver(direction, order_data):
     async def timeout_task():
         await asyncio.sleep(12)
         if order_data["passenger_id"] in active_orders:
+            active_orders[order_data["passenger_id"]].cancel()
             del active_orders[order_data["passenger_id"]]
             
             try:
@@ -712,15 +846,16 @@ async def send_order_to_next_driver(direction, order_data):
 
                 driver_obj = drivers_queues[direction].pop(0)
 
-                if current_missed < 8:
-                    drivers_queues[direction].insert(1, driver_obj)
-                    await bot.send_message(driver_id, f"⚠️ E'tiborsiz qoldirganingiz uchun navbatda 1 taga pastga surildingiz ({current_missed}/8).")
-                else:
-                    drivers_queues[direction].append(driver_obj)
+                if current_missed >= 5:
+                    insert_pos = min(1, len(drivers_queues[direction]))
+                    drivers_queues[direction].insert(insert_pos, driver_obj)
                     missed_dict[direction] = 0
                     cursor.execute("UPDATE drivers SET missed_counts = ? WHERE driver_id = ?", (json.dumps(missed_dict), driver_id))
                     conn.commit()
-                    await bot.send_message(driver_id, "⚠️ 8 marta javob bermaganingiz uchun ushbu yo'nalishdagi navbatning **oxiriga** tushirildingiz!", parse_mode="Markdown")
+                    await bot.send_message(driver_id, "⚠️ 5 marta ketma-ket zakazni o'tkazib yuborganingiz uchun navbatda 1 taga pastga surildingiz.")
+                else:
+                    drivers_queues[direction].append(driver_obj)
+                    await bot.send_message(driver_id, f"⚠️ Vaqt tugadi ({current_missed}/5). Zakaz o'tkazib yuborildi.")
 
             await send_order_to_next_driver(direction, order_data)
 
@@ -729,7 +864,6 @@ async def send_order_to_next_driver(direction, order_data):
 
 @router.callback_query(F.data.startswith("accept_"))
 async def accept_order_inline(callback: CallbackQuery):
-    import json
     try:
         passenger_id = int(callback.data.split("_")[1])
     except (IndexError, ValueError):
@@ -744,14 +878,16 @@ async def accept_order_inline(callback: CallbackQuery):
         order_info = pending_orders.get(passenger_id, {})
         direction = order_info.get("direction", "")
 
-        cursor.execute("SELECT missed_counts, car, number, name, phone FROM drivers WHERE driver_id = ?", (driver_id,))
+        cursor.execute("SELECT missed_counts, reject_counts, car, number, name, phone FROM drivers WHERE driver_id = ?", (driver_id,))
         row = cursor.fetchone()
         if row:
             missed_dict = json.loads(row[0]) if row[0] else {}
+            reject_dict = json.loads(row[1]) if row[1] else {}
             missed_dict[direction] = 0
-            cursor.execute("UPDATE drivers SET missed_counts = ? WHERE driver_id = ?", (json.dumps(missed_dict), driver_id))
+            reject_dict[direction] = 0
+            cursor.execute("UPDATE drivers SET missed_counts = ?, reject_counts = ? WHERE driver_id = ?", (json.dumps(missed_dict), json.dumps(reject_dict), driver_id))
             conn.commit()
-            d_car, d_num, d_name, d_phone = row[1], row[2], row[3], row[4]
+            d_car, d_num, d_name, d_phone = row[2], row[3], row[4], row[5]
         else:
             d_car, d_num, d_name, d_phone = "", "", "", ""
 
@@ -759,7 +895,9 @@ async def accept_order_inline(callback: CallbackQuery):
         p_name = order_info.get("passenger_name", "Yo'lovchi")
         p_count = order_info.get("count", 1)
         
-        p_phone_link = f"tel:+{p_phone}" if not p_phone.startswith("+") else f"tel:{p_phone}"
+        p_phone_clean = p_phone.strip()
+        if not p_phone_clean.startswith("+"):
+            p_phone_clean = "+" + p_phone_clean
 
         for dir_name in drivers_queues:
             for d in drivers_queues[dir_name]:
@@ -770,19 +908,21 @@ async def accept_order_inline(callback: CallbackQuery):
                     if d["seats"] > 0:
                         drivers_queues[dir_name].append(d)
                         await callback.message.edit_text(
-                            f"✅ **Buyurtma olindi!**\n👤 Yo'lovchi: {p_name}\n📞 Telefon: [{p_phone}]({p_phone_link})\n💺 Bo'sh joy: {d['seats']} ta",
+                            f"✅ **Buyurtma olindi!**\n👤 Yo'lovchi: {p_name}\n📞 Telefon: [{p_phone}](tel:{p_phone_clean})\n💺 Bo'sh joy: {d['seats']} ta",
                             parse_mode="Markdown"
                         )
                     else:
                         await callback.message.edit_text("✅ **Mashina to'ldi! Navbatdan chiqarildingiz.**", parse_mode="Markdown")
                     break
 
-        d_phone_link = f"tel:+{d_phone}" if not d_phone.startswith("+") else f"tel:{d_phone}"
+        d_phone_clean = d_phone.strip() if d_phone else ""
+        if d_phone_clean and not d_phone_clean.startswith("+"):
+            d_phone_clean = "+" + d_phone_clean
         
         try:
             await bot.send_message(
                 passenger_id,
-                f"🎉 **Haydovchi topildi!**\n🚗 {d_car} ({d_num})\n👤 {d_name}\n📞 Telefon: [{d_phone}]({d_phone_link})",
+                f"🎉 **Haydovchi topildi!**\n🚗 {d_car} ({d_num})\n👤 {d_name}\n📞 Telefon: [{d_phone}](tel:{d_phone_clean})",
                 parse_mode="Markdown"
             )
         except:
@@ -795,7 +935,6 @@ async def accept_order_inline(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("reject_"))
 async def reject_order_inline(callback: CallbackQuery):
-    import json
     try:
         passenger_id = int(callback.data.split("_")[1])
     except (IndexError, ValueError):
@@ -814,27 +953,36 @@ async def reject_order_inline(callback: CallbackQuery):
 
         for dir_name in drivers_queues:
             if dir_name == direction and drivers_queues[dir_name] and drivers_queues[dir_name][0]["id"] == driver_id:
-                cursor.execute("SELECT missed_counts FROM drivers WHERE driver_id = ?", (driver_id,))
+                cursor.execute("SELECT reject_counts FROM drivers WHERE driver_id = ?", (driver_id,))
                 row = cursor.fetchone()
-                missed_dict = json.loads(row[0]) if row and row[0] else {}
+                reject_dict = json.loads(row[0]) if row and row[0] else {}
                 
-                current_missed = missed_dict.get(direction, 0) + 1
-                missed_dict[direction] = current_missed
+                current_reject = reject_dict.get(direction, 0) + 1
+                reject_dict[direction] = current_reject
                 
-                cursor.execute("UPDATE drivers SET missed_counts = ? WHERE driver_id = ?", (json.dumps(missed_dict), driver_id))
+                cursor.execute("UPDATE drivers SET reject_counts = ? WHERE driver_id = ?", (json.dumps(reject_dict), driver_id))
                 conn.commit()
 
                 driver_obj = drivers_queues[direction].pop(0)
 
-                if current_missed < 8:
-                    drivers_queues[direction].insert(1, driver_obj)
-                    await bot.send_message(driver_id, f"⚠️ Rad etganingiz uchun navbatda 1 taga pastga surildingiz ({current_missed}/8).")
+                if current_reject >= 5:
+                    reject_dict[direction] = 0
+                    cursor.execute("UPDATE drivers SET reject_counts = ? WHERE driver_id = ?", (json.dumps(reject_dict), driver_id))
+                    conn.commit()
+
+                    await bot.send_message(
+                        driver_id, 
+                        "❌ 5 marta ketma-ket rad etganingiz uchun ushbu yo'nalishdagi **navbatdan chiqarildingiz**!", 
+                        parse_mode="Markdown",
+                        reply_markup=main_menu()
+                    )
                 else:
                     drivers_queues[direction].append(driver_obj)
-                    missed_dict[direction] = 0
-                    cursor.execute("UPDATE drivers SET missed_counts = ? WHERE driver_id = ?", (json.dumps(missed_dict), driver_id))
-                    conn.commit()
-                    await bot.send_message(driver_id, f"⚠️ 8 marta rad etganingiz uchun ushbu yo'nalishdagi navbatning **oxiriga** tushirildingiz!", parse_mode="Markdown")
+                    await bot.send_message(
+                        driver_id, 
+                        f"⚠️ Buyurtmani rad etdingiz ({current_reject}/5). Navbatning oxiriga tushirildingiz.",
+                        parse_mode="Markdown"
+                    )
 
                 if passenger_id in pending_orders:
                     await send_order_to_next_driver(direction, pending_orders[passenger_id])
@@ -862,7 +1010,7 @@ async def daily_queue_reset():
         for direction in drivers_queues:
             drivers_queues[direction].clear()
             
-        cursor.execute("UPDATE drivers SET missed_counts = '{}'")
+        cursor.execute("UPDATE drivers SET missed_counts = '{}', reject_counts = '{}'")
         conn.commit()
             
         print("🔄 Avtomatik tarzda barcha navbatlar soat 05:00 da qayta tozalandi!")
