@@ -107,6 +107,7 @@ async def cmd_start(message: Message, state: FSMContext):
 #              ADMIN BUYRUQLARI
 # ==========================================
 
+# 1. Bittalab kun qo'shish: /uzaytirish ID KUN
 @router.message(Command("uzaytirish"))
 async def admin_extend_driver(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -153,6 +154,60 @@ async def admin_extend_driver(message: Message):
         )
     except:
         pass
+
+
+# 2. HAMMAGA BIRDANIGA KUN QO'SHISH: /hammaga KUN_SONI
+@router.message(Command("hammaga"))
+async def admin_extend_all_drivers(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    parts = message.text.split()
+    if len(parts) != 2:
+        await message.answer("⚠️ Noto'g'ri format!\nIshlatish: `/hammaga KUN_SONI` (masalan: `/hammaga 5`)", parse_mode="Markdown")
+        return
+
+    try:
+        days = int(parts[1])
+    except ValueError:
+        await message.answer("❌ Kunlar soni faqat raqamlardan iborat bo'lishi kerak!")
+        return
+
+    # Faqat tasdiqlangan (approved) haydovchilarni olamiz
+    cursor.execute("SELECT driver_id, paid_until FROM drivers WHERE status = 'approved'")
+    rows = cursor.fetchall()
+
+    if not rows:
+        await message.answer("📭 Bazada tasdiqlangan haydovchilar topilmadi.")
+        return
+
+    count = 0
+    for row in rows:
+        d_id, paid_until_str = row
+        current_paid_until = datetime.fromisoformat(paid_until_str) if paid_until_str else None
+
+        if current_paid_until and current_paid_until > datetime.now():
+            new_paid_until = current_paid_until + timedelta(days=days)
+        else:
+            new_paid_until = datetime.now() + timedelta(days=days)
+
+        new_paid_str = new_paid_until.isoformat()
+        cursor.execute("UPDATE drivers SET paid_until = ? WHERE driver_id = ?", (new_paid_str, d_id))
+        conn.commit()
+        count += 1
+
+        # Har bir haydovchiga xabar yuborishga harakat qilamiz
+        date_str = new_paid_until.strftime("%d.%m.%Y %H:%M")
+        try:
+            await bot.send_message(
+                d_id,
+                f"🎉 **Ajoyib yangilik!** Admin tomonidan barcha haydovchilarga **{days} kun** qo'shib berildi.\n📅 Yangi muddat: {date_str}",
+                parse_mode="Markdown"
+            )
+        except:
+            pass
+
+    await message.answer(f"✅ Jami **{count} ta** tasdiqlangan haydovchiga **{days} kundan** muddat qo'shildi!", parse_mode="Markdown")
 
 
 @router.message(Command("haydovchilar"))
@@ -436,7 +491,6 @@ async def reg_phone(message: Message, state: FSMContext):
     data = await state.get_data()
     driver_id = message.from_user.id
     
-    # Bazaga yozish (agar oldin bo'lmasa INSERT, bo'lsa REPLACE)
     cursor.execute("""
     INSERT OR REPLACE INTO drivers (driver_id, name, car, number, phone, status, paid_until, last_work_date, missed_counts)
     VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, '{}')
