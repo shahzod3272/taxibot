@@ -646,7 +646,6 @@ async def reg_phone(message: Message, state: FSMContext):
     kb = admin_menu() if message.from_user.id == ADMIN_ID else main_menu()
     await message.answer("✅ Ma'lumotlar adminga yuborildi!", reply_markup=kb)
 
-    # Inlayn (Inline) tasdiqlash tugmalari (Admin oson bosishi uchun)
     admin_keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -1039,7 +1038,7 @@ async def reject_order_inline(callback: CallbackQuery):
 
 
 # ==========================================
-#   HAR KUNI SOAT 05:00 DA NAVBATLARNI TOZALASH
+#   HAR KUNI SOAT 05:00 DA NAVBATLARni TOZALASH
 # ==========================================
 async def daily_queue_reset():
     while True:
@@ -1072,4 +1071,4 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(
+    asyncio.run(main())
