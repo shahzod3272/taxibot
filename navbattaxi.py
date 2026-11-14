@@ -97,7 +97,7 @@ class FeedbackState(StatesGroup):
     waiting_for_feedback = State()
 
 
-# --- ASOSIY MENYU ---
+# --- ASOSIY MENYULAR ---
 def main_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -107,10 +107,32 @@ def main_menu():
         resize_keyboard=True,
     )
 
+def admin_menu():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🚗 Barcha haydovchilar"), KeyboardButton(text="⚠️ 1 kuni qolganlar")],
+            [KeyboardButton(text="🏠 Asosiy menyu")],
+        ],
+        resize_keyboard=True,
+    )
+
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
+    
+    # Agar foydalanuvchi admin bo'lsa, maxsus admin menyusi chiqadi
+    if message.from_user.id == ADMIN_ID:
+        await message.answer(
+            "👑 **Assalomu alaykum, Admin!** Bot boshqaruv paneliga xush kelibsiz.\n\n"
+            "Buyruqlar:\n"
+            "• `/uzaytirish ID KUN` - Haydovchi muddatini uzaytirish\n"
+            "• `/hammaga KUN` - Hammaga kun qo'shish",
+            reply_markup=admin_menu(),
+            parse_mode="Markdown"
+        )
+        return
+
     await message.answer(
         "👋 Assalomu alaykum! **TAKSI11** tezkor taksi botiga xush kelibsiz. 🚗\n\n"
         "👇 **Iltimos, o'zingizga kerakli tugmani tanlang:**",
@@ -123,6 +145,7 @@ async def cmd_start(message: Message, state: FSMContext):
 #              ADMIN BUYRUQLARI
 # ==========================================
 
+@router.message(F.text == "⚠️ 1 kuni qolganlar")
 @router.message(Command("kuni_oz"))
 async def admin_low_balance_drivers(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -273,6 +296,7 @@ async def admin_extend_all_drivers(message: Message):
     await message.answer(f"✅ Jami **{count} ta** tasdiqlangan haydovchiga **{days} kundan** muddat qo'shildi!", parse_mode="Markdown")
 
 
+@router.message(F.text == "🚗 Barcha haydovchilar")
 @router.message(Command("haydovchilar"))
 async def admin_driver_list(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -328,7 +352,8 @@ async def feedback_start(message: Message, state: FSMContext):
 @router.message(FeedbackState.waiting_for_feedback, F.text == "🏠 Asosiy menyu")
 async def feedback_back(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer("Asosiy menyu:", reply_markup=main_menu())
+    kb = admin_menu() if message.from_user.id == ADMIN_ID else main_menu()
+    await message.answer("Asosiy menyu:", reply_markup=kb)
 
 
 @router.message(FeedbackState.waiting_for_feedback)
@@ -343,7 +368,8 @@ async def feedback_get(message: Message, state: FSMContext):
     except:
         pass
     await state.clear()
-    await message.answer("✅ Xabaringiz adminga yuborildi!", reply_markup=main_menu())
+    kb = admin_menu() if message.from_user.id == ADMIN_ID else main_menu()
+    await message.answer("✅ Xabaringiz adminga yuborildi!", reply_markup=kb)
 
 
 # ==========================================
@@ -367,7 +393,8 @@ async def passenger_start(message: Message, state: FSMContext):
 @router.message(PassengerState.waiting_for_direction, F.text == "🏠 Asosiy menyu")
 async def back_to_main_passenger(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer("Asosiy menyu:", reply_markup=main_menu())
+    kb = admin_menu() if message.from_user.id == ADMIN_ID else main_menu()
+    await message.answer("Asosiy menyu:", reply_markup=kb)
 
 
 @router.message(PassengerState.waiting_for_direction)
@@ -419,7 +446,6 @@ async def passenger_chosen_count(message: Message, state: FSMContext):
     direction = data["direction"]
     p_count = data["passenger_count"]
 
-    # Tasdiqlash uchun Inline tugmalar (Taksi chaqirish o'ng tomonga qo'yildi)
     confirm_keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -442,8 +468,9 @@ async def passenger_chosen_count(message: Message, state: FSMContext):
 @router.callback_query(F.data == "cancel_order")
 async def cancel_order_inline(callback: CallbackQuery, state: FSMContext):
     await state.clear()
+    kb = admin_menu() if callback.from_user.id == ADMIN_ID else main_menu()
     await callback.message.edit_text("❌ Buyurtma bekor qilindi.")
-    await callback.message.answer("Asosiy menyu:", reply_markup=main_menu())
+    await callback.message.answer("Asosiy menyu:", reply_markup=kb)
     await callback.answer("Bekor qilindi")
 
 
@@ -487,7 +514,8 @@ async def confirm_order_inline(callback: CallbackQuery, state: FSMContext):
 @router.message(PassengerState.waiting_for_phone, F.text == "🏠 Asosiy menyu")
 async def back_from_phone(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer("Asosiy menyu:", reply_markup=main_menu())
+    kb = admin_menu() if message.from_user.id == ADMIN_ID else main_menu()
+    await message.answer("Asosiy menyu:", reply_markup=kb)
 
 
 @router.message(PassengerState.waiting_for_phone)
@@ -507,7 +535,8 @@ async def passenger_got_phone_text(message: Message, state: FSMContext):
     direction = data.get("direction", DIR_1)
     p_count = data.get("passenger_count", 1)
 
-    await message.answer("✅ Buyurtmangiz qabul qilindi! Haydovchi qidirilmoqda...", reply_markup=main_menu())
+    kb = admin_menu() if message.from_user.id == ADMIN_ID else main_menu()
+    await message.answer("✅ Buyurtmangiz qabul qilindi! Haydovchi qidirilmoqda...", reply_markup=kb)
     await state.clear()
 
     order_info = {
@@ -560,7 +589,8 @@ async def driver_entry(message: Message, state: FSMContext):
 
     paid_until = datetime.fromisoformat(paid_until_str) if paid_until_str else None
     if paid_until and datetime.now() > paid_until:
-        await message.answer("⚠️ To'lov muddatingiz tugagan! Adminga murojaat qiling.", reply_markup=main_menu())
+        kb = admin_menu() if message.from_user.id == ADMIN_ID else main_menu()
+        await message.answer("⚠️ To'lov muddatingiz tugagan! Adminga murojaat qiling.", reply_markup=kb)
         return
 
     keyboard = ReplyKeyboardMarkup(
@@ -613,11 +643,17 @@ async def reg_phone(message: Message, state: FSMContext):
     conn.commit()
     
     await state.clear()
-    await message.answer("✅ Ma'lumotlar adminga yuborildi!", reply_markup=main_menu())
+    kb = admin_menu() if message.from_user.id == ADMIN_ID else main_menu()
+    await message.answer("✅ Ma'lumotlar adminga yuborildi!", reply_markup=kb)
 
-    admin_keyboard = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=f"✅ Tasdiqlash_{driver_id}"), KeyboardButton(text=f"❌ Rad etish_{driver_id}")]],
-        resize_keyboard=True,
+    # Inlayn (Inline) tasdiqlash tugmalari (Admin oson bosishi uchun)
+    admin_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Tasdiqlash", callback_data=f"adm_approve_{driver_id}"),
+                InlineKeyboardButton(text="❌ Rad etish", callback_data=f"adm_reject_{driver_id}")
+            ]
+        ]
     )
     
     p_clean = phone.strip()
@@ -639,37 +675,43 @@ async def reg_phone(message: Message, state: FSMContext):
         pass
 
 
-@router.message(F.text.startswith("✅ Tasdiqlash_"))
-async def admin_approve_driver(message: Message):
-    if message.from_user.id != ADMIN_ID:
+@router.callback_query(F.data.startswith("adm_approve_"))
+async def admin_approve_driver_inline(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Siz admin emassiz!", show_alert=True)
         return
-    driver_id = int(message.text.split("_")[1])
+        
+    driver_id = int(callback.data.split("_")[2])
     
     paid_date = (datetime.now() + timedelta(days=10)).isoformat()
     cursor.execute("UPDATE drivers SET status = 'approved', paid_until = ? WHERE driver_id = ?", (paid_date, driver_id))
     conn.commit()
 
-    await message.edit_text("✅ Haydovchi tasdiqlandi va 10 kun berildi!")
+    await callback.message.edit_text(callback.message.text + "\n\n✅ **HOLAT: TASDIQLANDI (10 kun berildi)**", parse_mode="Markdown")
     try:
         await bot.send_message(driver_id, "🎉 Tabriklaymiz! Arizangiz tasdiqlandi va 10 kunlik muddat berildi.")
     except:
         pass
+    await callback.answer("Haydovchi tasdiqlandi!")
 
 
-@router.message(F.text.startswith("❌ Rad etish_"))
-async def admin_reject_driver(message: Message):
-    if message.from_user.id != ADMIN_ID:
+@router.callback_query(F.data.startswith("adm_reject_"))
+async def admin_reject_driver_inline(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Siz admin emassiz!", show_alert=True)
         return
-    driver_id = int(message.text.split("_")[1])
+        
+    driver_id = int(callback.data.split("_")[2])
     
     cursor.execute("UPDATE drivers SET status = 'rejected' WHERE driver_id = ?", (driver_id,))
     conn.commit()
 
-    await message.edit_text("❌ Haydovchi rad etildi.")
+    await callback.message.edit_text(callback.message.text + "\n\n❌ **HOLAT: RAD ETILDI**", parse_mode="Markdown")
     try:
         await bot.send_message(driver_id, "❌ Afsuski, arizangiz rad etildi.")
     except:
         pass
+    await callback.answer("Haydovchi rad etildi.")
 
 
 @router.message(DriverState.waiting_for_direction, F.text == "💰 Mening hisobim")
@@ -748,7 +790,8 @@ async def driver_leave_queue(message: Message):
         for d in drivers_queues[direction]:
             if d["id"] == driver_id:
                 drivers_queues[direction].remove(d)
-    await message.answer("✅ Siz navbatdan chiqarildingiz.", reply_markup=main_menu())
+    kb = admin_menu() if message.from_user.id == ADMIN_ID else main_menu()
+    await message.answer("✅ Siz navbatdan chiqarildingiz.", reply_markup=kb)
 
 
 @router.message(F.text == "📋 Navbat ro'yxati")
@@ -773,7 +816,8 @@ async def show_queue_list(message: Message):
 @router.message(F.text == "🏠 Asosiy menyu")
 async def back_to_main_menu_general(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer("Asosiy menyu:", reply_markup=main_menu())
+    kb = admin_menu() if message.from_user.id == ADMIN_ID else main_menu()
+    await message.answer("Asosiy menyu:", reply_markup=kb)
 
 
 # ==========================================
@@ -965,6 +1009,7 @@ async def reject_order_inline(callback: CallbackQuery):
 
                 driver_obj = drivers_queues[direction].pop(0)
 
+                kb = admin_menu() if driver_id == ADMIN_ID else main_menu()
                 if current_reject >= 5:
                     reject_dict[direction] = 0
                     cursor.execute("UPDATE drivers SET reject_counts = ? WHERE driver_id = ?", (json.dumps(reject_dict), driver_id))
@@ -974,7 +1019,7 @@ async def reject_order_inline(callback: CallbackQuery):
                         driver_id, 
                         "❌ 5 marta ketma-ket rad etganingiz uchun ushbu yo'nalishdagi **navbatdan chiqarildingiz**!", 
                         parse_mode="Markdown",
-                        reply_markup=main_menu()
+                        reply_markup=kb
                     )
                 else:
                     drivers_queues[direction].append(driver_obj)
@@ -1027,4 +1072,4 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(
