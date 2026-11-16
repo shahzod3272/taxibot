@@ -18,8 +18,13 @@ from aiogram.types import (
     ReplyKeyboardRemove,
 )
 
+# FastAPI uchun importlar (Android ilova uchun)
+from fastapi import FastAPI, HTTPException
+import uvicorn
+import threading
+
 # TOKENni o'zingizning bot tokeningizga almashtiring
-TOKEN = "9009245143:AAFUPCxK636Fn766dFxhezIlGugL1XnLzDE"
+TOKEN = "9211823197:AAEWHol4YCujb66IQl27FwfBt5EXT4rt82k"
 
 # Adminning Telegram ID raqami
 ADMIN_ID = 1145699643
@@ -121,7 +126,6 @@ def admin_menu():
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     
-    # Agar foydalanuvchi admin bo'lsa, maxsus admin menyusi chiqadi
     if message.from_user.id == ADMIN_ID:
         await message.answer(
             "👑 **Assalomu alaykum, Admin!** Bot boshqaruv paneliga xush kelibsiz.\n\n"
@@ -918,8 +922,12 @@ async def accept_order_inline(callback: CallbackQuery):
         active_orders[passenger_id].cancel()
         del active_orders[passenger_id]
 
+        # Yo'lovchi ma'lumotlarini pending_orders dan olamiz
         order_info = pending_orders.get(passenger_id, {})
         direction = order_info.get("direction", "")
+        p_name = order_info.get("passenger_name", "Yo'lovchi")
+        p_phone = order_info.get("phone", "Noma'lum")
+        p_count = order_info.get("count", 1)
 
         cursor.execute("SELECT missed_counts, reject_counts, car, number, name, phone FROM drivers WHERE driver_id = ?", (driver_id,))
         row = cursor.fetchone()
@@ -934,10 +942,6 @@ async def accept_order_inline(callback: CallbackQuery):
         else:
             d_car, d_num, d_name, d_phone = "", "", "", ""
 
-        p_phone = order_info.get("phone", "")
-        p_name = order_info.get("passenger_name", "Yo'lovchi")
-        p_count = order_info.get("count", 1)
-        
         p_phone_clean = p_phone.strip()
         if not p_phone_clean.startswith("+"):
             p_phone_clean = "+" + p_phone_clean
@@ -951,11 +955,21 @@ async def accept_order_inline(callback: CallbackQuery):
                     if d["seats"] > 0:
                         drivers_queues[dir_name].append(d)
                         await callback.message.edit_text(
-                            f"✅ **Buyurtma olindi!**\n👤 Yo'lovchi: {p_name}\n📞 Telefon: [{p_phone}](tel:{p_phone_clean})\n💺 Bo'sh joy: {d['seats']} ta",
+                            f"✅ **Buyurtma muvaffaqiyatli olindi!**\n\n"
+                            f"👤 **Yo'lovchi:** {p_name}\n"
+                            f"👥 **Odam soni:** {p_count} ta\n"
+                            f"📞 **Telefon:** [{p_phone}](tel:{p_phone_clean})\n\n"
+                            f"💺 **Qolgan bo'sh joyingiz:** {d['seats']} ta",
                             parse_mode="Markdown"
                         )
                     else:
-                        await callback.message.edit_text("✅ **Mashina to'ldi! Navbatdan chiqarildingiz.**", parse_mode="Markdown")
+                        await callback.message.edit_text(
+                            f"✅ **Mashina to'ldi!**\n\n"
+                            f"👤 **Oxirgi yo'lovchi:** {p_name}\n"
+                            f"📞 **Telefon:** [{p_phone}](tel:{p_phone_clean})\n\n"
+                            f"🚗 Mashina to'lgani uchun navbatdan chiqarildingiz.",
+                            parse_mode="Markdown"
+                        )
                     break
 
         d_phone_clean = d_phone.strip() if d_phone else ""
@@ -965,11 +979,18 @@ async def accept_order_inline(callback: CallbackQuery):
         try:
             await bot.send_message(
                 passenger_id,
-                f"🎉 **Haydovchi topildi!**\n🚗 {d_car} ({d_num})\n👤 {d_name}\n📞 Telefon: [{d_phone}](tel:{d_phone_clean})",
+                f"🎉 **Haydovchi topildi!**\n\n"
+                f"🚗 Mashina: {d_car} ({d_num})\n"
+                f"👤 Haydovchi: {d_name}\n"
+                f"📞 Telefon: [{d_phone}](tel:{d_phone_clean})",
                 parse_mode="Markdown"
             )
         except:
             pass
+
+        if passenger_id in pending_orders:
+            del pending_orders[passenger_id]
+
         await callback.answer("Buyurtma muvaffaqiyatli qabul qilindi!")
     else:
         await callback.message.edit_text("⚠️ Bu buyurtma vaqti o'tib ketgan yoki boshqa haydovchi tomonidan olingan.")
@@ -1038,6 +1059,39 @@ async def reject_order_inline(callback: CallbackQuery):
 
 
 # ==========================================
+#      FASTAPI BACKEND (ANDROID UCHUN)
+# ==========================================
+app = FastAPI()
+
+@app.post("/api/login")
+def api_driver_login(data: dict):
+    driver_id = data.get("driver_id")
+    cursor.execute("SELECT name, car, number, phone, status, paid_until FROM drivers WHERE driver_id = ?", (driver_id,))
+    row = cursor.fetchone()
+    
+    if not row:
+        return {"success": False, "message": "Haydovchi topilmadi!"}
+    
+    name, car, number, phone, status, paid_until_str = row
+    if status != "approved":
+        return {"success": False, "message": "Arizangiz hali tasdiqlanmagan!"}
+        
+    return {
+        "success": True,
+        "driver": {
+            "id": driver_id,
+            "name": name,
+            "car": car,
+            "number": number,
+            "phone": phone
+        }
+    }
+
+def run_fastapi():
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+# ==========================================
 #   HAR KUNI SOAT 05:00 DA NAVBATLARni TOZALASH
 # ==========================================
 async def daily_queue_reset():
@@ -1056,18 +1110,18 @@ async def daily_queue_reset():
             
         cursor.execute("UPDATE drivers SET missed_counts = '{}', reject_counts = '{}'")
         conn.commit()
-            
-        print("🔄 Avtomatik tarzda barcha navbatlar soat 05:00 da qayta tozalandi!")
 
 
-# Botni ishga tushirish
+# Bot va FastAPI serverni birgalikda ishga tushirish
 async def main():
+    threading.Thread(target=run_fastapi, daemon=True).start()
+    
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
     
     asyncio.create_task(daily_queue_reset())
     
-    print("Bot muvaffaqiyatli ishga tushdi!")
+    print("Bot va FastAPI server muvaffaqiyatli ishga tushdi!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
